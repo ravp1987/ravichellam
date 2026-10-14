@@ -140,6 +140,13 @@ details.done-wrap ul { margin-top: 8px; }
 @keyframes rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .alert { animation: none; } }
 .foot { color: var(--muted); font-size: .82rem; }
+.phone { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); cursor: pointer; }
+.phone input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.phone span { display: grid; gap: 1px; min-width: 0; }
+.phone small { color: var(--muted); font-size: .8rem; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--due-soft); color: var(--due); }
+.linkbtn { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
 @media (max-width: 480px) {
   .item { grid-template-columns: auto 1fr; }
   .side { grid-column: 2; justify-content: flex-start; }
@@ -179,6 +186,10 @@ details.done-wrap ul { margin-top: 8px; }
       </div>
     </div>
     <div class="field"><label for="notes">Notes</label><textarea id="notes" rows="1" maxlength="1000" placeholder="Optional details"></textarea></div>
+    <label class="phone" id="phoneRow" hidden>
+      <input type="checkbox" id="phone" checked>
+      <span><b>Alert on my phone too</b><small>Adds this to your Google Calendar with a pop-up at the due time. The Google Calendar app on your phone shows the alert.</small></span>
+    </label>
     <div class="actions">
       <button class="btn primary" id="save" type="submit">Add reminder</button>
       <button class="btn ghost" id="cancel" type="button" hidden>Cancel</button>
@@ -192,7 +203,7 @@ details.done-wrap ul { margin-top: 8px; }
   </form>
 
   <main id="list" aria-live="polite"></main>
-  <p class="foot" id="foot">Alerts show here while this page is open. For phone notifications, use "Add to Google Calendar" on any reminder.</p>
+  <p class="foot" id="foot">Alerts show here while this page is open. Reminders with phone alerts are added to your Google Calendar, which notifies your phone even when this page is closed.</p>
 </div>
 <div class="alerts" id="alerts"></div>
 
@@ -257,6 +268,78 @@ details.done-wrap ul { margin-top: 8px; }
   }
   function setSync(m, text) { const s = $("sync"); s.dataset.mode = m; s.textContent = text; }
 
+  // ---------- Google Calendar (phone alerts) ----------
+  const CAL = "Google Calendar";
+  let mcp = null;
+  async function connectCal() {
+    try { mcp = window.claude && typeof window.claude.use === "function" ? await window.claude.use("mcp") : null; } catch { mcp = null; }
+    $("phoneRow").hidden = !mcp;
+    try { const p = localStorage.getItem("nudge.phone"); if (p !== null) $("phone").checked = p === "1"; } catch {}
+    render();
+  }
+  const localIso = (ms) => { const d = new Date(ms); return `${dateStr(d)}T${timeStr(d)}:00`; };
+  const RRULE = { daily: "FREQ=DAILY", weekdays: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", weekly: "FREQ=WEEKLY", monthly: "FREQ=MONTHLY", yearly: "FREQ=YEARLY" };
+  function extractId(res) {
+    const p = res && res.payload;
+    for (const c of [p && p.id, p && p.eventId, p && p.event && p.event.id, p && p.event && p.event.eventId]) if (typeof c === "string" && c) return c;
+    const txt = typeof p === "string" ? p : JSON.stringify((res && res.content) || "");
+    const m = txt.match(/"?(?:eventId|id)"?\s*[:=]\s*\\?"?([A-Za-z0-9_]{5,})/);
+    return m ? m[1] : null;
+  }
+  function calErrText(e) {
+    switch (e && e.code) {
+      case "server_not_connected": case "server_not_found": return "Add Google Calendar in claude.ai Settings → Connectors";
+      case "needs_reauth": return "Reconnect Google Calendar in claude.ai Settings → Connectors";
+      case "not_in_manifest": case "approval_required": return "Google Calendar access was not allowed for this page";
+      case "selection_required": return "Choose which Google Calendar connector to use";
+      case "blocked_by_policy": return "Your organization blocks this Google Calendar action";
+      case "server_unavailable": return "Google Calendar didn't respond. Try again in a moment";
+      default: return (e && e.message) || "Google Calendar couldn't save this";
+    }
+  }
+  async function calCreate(r) {
+    const input = {
+      summary: r.title, startTime: localIso(r.due), endTime: localIso(r.due + 15 * 60e3),
+      description: (r.notes ? r.notes + "\n\n" : "") + "Reminder from Nudge",
+      overrideReminders: [{ method: "popup", minutes: 0 }], availability: "AVAILABILITY_FREE", notificationLevel: "NONE",
+    };
+    if (RRULE[r.repeat]) input.recurrenceData = ["RRULE:" + RRULE[r.repeat]];
+    return extractId(await mcp.callTool(CAL, "create_event", input));
+  }
+  async function calDelete(eventId) {
+    try { await mcp.callTool(CAL, "delete_event", { eventId, notificationLevel: "NONE" }); }
+    catch (e) { if (e && e.code !== "tool_error") throw e; } // tool_error: already gone
+  }
+  // Bring the calendar event in line with reminder `next`; returns fields to store on it.
+  async function calSync(prev, next) {
+    const id = prev && prev.calEventId;
+    const want = !!(mcp && next.phone && !next.done);
+    try {
+      if (!want) { if (id && mcp) await calDelete(id); return { calEventId: null, calError: null }; }
+      if (id && prev.repeat === next.repeat) {
+        if (prev.title !== next.title || prev.notes !== next.notes || prev.due !== next.due) {
+          await mcp.callTool(CAL, "update_event", {
+            eventId: id, summary: next.title, description: (next.notes ? next.notes + "\n\n" : "") + "Reminder from Nudge",
+            startTime: localIso(next.due), endTime: localIso(next.due + 15 * 60e3), notificationLevel: "NONE",
+          });
+        }
+        return { calEventId: id, calError: null };
+      }
+      if (id) await calDelete(id);
+      const newId = await calCreate(next);
+      return { calEventId: newId, calError: newId ? null : "Added to Google Calendar, but later edits won't sync" };
+    } catch (e) {
+      return { calEventId: id || null, calError: calErrText(e) };
+    }
+  }
+  async function save(prev, next) {
+    await put(next);
+    if (!mcp || (!next.phone && !(prev && prev.calEventId))) return;
+    const patch = await calSync(prev, next);
+    const cur = items.find((x) => x.id === next.id);
+    if (cur && (cur.calEventId !== patch.calEventId || cur.calError !== patch.calError)) await put({ ...cur, ...patch });
+  }
+
   // ---------- dates ----------
   const pad = (n) => String(n).padStart(2, "0");
   const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -306,17 +389,19 @@ details.done-wrap ul { margin-top: 8px; }
   }
 
   // ---------- actions ----------
+  // Repeating reminders keep their calendar series as is; Google Calendar repeats on its own.
   function complete(r) {
     alerted.delete(r.id);
     if (r.repeat && r.repeat !== "none" && !r.done) put({ ...r, due: advance(r), lastDoneAt: Date.now() });
-    else put({ ...r, done: !r.done, doneAt: r.done ? null : Date.now() });
+    else save(r, { ...r, done: !r.done, doneAt: r.done ? null : Date.now() });
   }
   function snooze(r, mins) {
     alerted.delete(r.id);
     let due;
     if (mins === "tomorrow") { const d = addDays(startOfDay(new Date()), 1); d.setHours(9); due = d.getTime(); }
     else due = Date.now() + mins * 60e3;
-    put({ ...r, due, done: false });
+    const next = { ...r, due, done: false };
+    if (r.repeat && r.repeat !== "none") put(next); else save(r, next);
   }
 
   // ---------- form ----------
@@ -331,6 +416,7 @@ details.done-wrap ul { margin-top: 8px; }
     editing = r.id;
     const d = new Date(r.due);
     $("title").value = r.title; $("notes").value = r.notes || ""; $("repeat").value = r.repeat || "none";
+    $("phone").checked = !!r.phone;
     $("date").value = dateStr(d); $("time").value = timeStr(d);
     $("formHead").textContent = "Edit reminder"; $("save").textContent = "Save changes";
     $("cancel").hidden = false; $("del").hidden = false; $("confirm").hidden = true;
@@ -349,16 +435,23 @@ details.done-wrap ul { margin-top: 8px; }
       ...(prev || { created: Date.now() }),
       id: editing || "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       title, notes: $("notes").value.trim(), due, repeat: $("repeat").value, done: false, doneAt: null,
+      phone: !!mcp && $("phone").checked,
     };
     alerted.delete(r.id);
-    put(r);
+    if (!prev && mcp) { try { localStorage.setItem("nudge.phone", $("phone").checked ? "1" : "0"); } catch {} }
+    save(prev || null, r);
     resetForm();
     $("title").focus();
   });
   $("cancel").onclick = resetForm;
   $("del").onclick = () => { $("del").hidden = true; $("confirm").hidden = false; };
   $("delNo").onclick = () => { $("del").hidden = false; $("confirm").hidden = true; };
-  $("delYes").onclick = () => { const id = editing; resetForm(); remove(id); };
+  $("delYes").onclick = () => {
+    const r = items.find((x) => x.id === editing); resetForm();
+    if (!r) return;
+    remove(r.id);
+    if (r.calEventId && mcp) calDelete(r.calEventId).catch((e) => flash("Couldn't remove it from Google Calendar: " + calErrText(e)));
+  };
   $("chips").addEventListener("click", (e) => {
     const q = e.target.closest(".chip")?.dataset.q; if (!q) return;
     const d = quick(q); $("date").value = dateStr(d); $("time").value = timeStr(d);
@@ -384,7 +477,16 @@ details.done-wrap ul { margin-top: 8px; }
     meta.append(el("span", null, fmtDay.format(d) + " · " + fmtTime.format(d)));
     if (!r.done) meta.append(el("span", "rel", relative(r.due)));
     if (r.repeat && r.repeat !== "none") meta.append(el("span", "pill", "↻ " + REPEAT_LABEL[r.repeat]));
-    if (!r.done) {
+    if (!r.done && r.calEventId && !r.calError) meta.append(el("span", "pill ok", "Phone alert on"));
+    if (!r.done && r.calError) {
+      const w = el("span", "pill warn", "Phone alert: " + r.calError);
+      if (mcp) {
+        const b = el("button", "linkbtn", "Retry"); b.type = "button";
+        b.onclick = (e) => { e.stopPropagation(); save(r.calEventId ? { ...r, due: -1 } : { ...r, calEventId: null }, { ...r, phone: true, calError: null }); };
+        meta.append(w, b);
+      } else meta.append(w);
+    }
+    if (!r.done && !r.calEventId) {
       const a = el("a", null, "Add to Google Calendar"); a.href = gcalLink(r); a.target = "_blank"; a.rel = "noopener";
       a.onclick = (e) => e.stopPropagation();
       meta.append(a);
@@ -498,6 +600,7 @@ details.done-wrap ul { margin-top: 8px; }
 
   resetForm();
   render();
+  connectCal();
   connect().then(() => {
     // Mark anything already overdue at load as seen so only fresh ones pop.
     const now = Date.now(); items.forEach((r) => { if (!r.done && now - r.due >= 5 * 60e3) alerted.add(r.id); });
