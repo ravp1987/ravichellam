@@ -1,0 +1,507 @@
+<title>Nudge Reminders</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one calm column — a quick-add card on top, then a timeline grouped by when things are due. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #18212f;
+  --muted: #5d6a7c;
+  --line: #dde3eb;
+  --accent: #2f5fd0;
+  --accent-ink: #ffffff;
+  --accent-soft: #e5ecfb;
+  --due: #c2410c;
+  --due-soft: #fdeee4;
+  --ok: #1f7a4d;
+  --ok-soft: #e2f3ea;
+  --shadow: 0 1px 2px rgba(24, 33, 47, .06), 0 6px 20px rgba(24, 33, 47, .06);
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10151d; --surface: #18202b; --ink: #e7ecf3; --muted: #9aa7b8; --line: #2a3442;
+    --accent: #7ea2ff; --accent-ink: #0d1422; --accent-soft: #1f2b45;
+    --due: #ff9a62; --due-soft: #3a2218; --ok: #5fd39a; --ok-soft: #173326;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10151d; --surface: #18202b; --ink: #e7ecf3; --muted: #9aa7b8; --line: #2a3442;
+  --accent: #7ea2ff; --accent-ink: #0d1422; --accent-soft: #1f2b45;
+  --due: #ff9a62; --due-soft: #3a2218; --ok: #5fd39a; --ok-soft: #173326;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 64px;
+}
+.wrap { max-width: 680px; margin: 0 auto; display: grid; gap: 24px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header { display: grid; gap: 6px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font: 700 2.1rem/1.1 var(--f-display); margin: 0; letter-spacing: -.02em; text-wrap: balance; }
+h1 span { color: var(--accent); }
+.sync { font-size: .78rem; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.sync[data-mode="cloud"]::before { background: var(--ok); }
+.summary { color: var(--muted); margin: 0; }
+.summary b { color: var(--ink); }
+.summary .hot { color: var(--due); }
+
+/* Quick-add card */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 18px; display: grid; gap: 14px; }
+.card h2 { margin: 0; font: 600 .78rem/1 var(--f-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+#title { width: 100%; font: 500 1.2rem/1.3 var(--f-display); border: 0; border-bottom: 2px solid var(--line); background: transparent; padding: 6px 0; }
+#title:focus { outline: none; border-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; }
+.field { display: grid; gap: 4px; flex: 1 1 130px; min-width: 0; }
+.field label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.field input, .field select, textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 8px 10px; min-height: 40px;
+}
+textarea { resize: vertical; min-height: 40px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 5px 12px; font-size: .85rem; cursor: pointer; color: var(--muted); }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; font-weight: 700; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.btn.danger { background: transparent; color: var(--due); border: 1px solid var(--due); }
+.btn:disabled { opacity: .5; cursor: default; }
+.spacer { flex: 1; }
+.confirm { display: inline-flex; gap: 8px; align-items: center; color: var(--due); font-size: .9rem; }
+
+/* Timeline */
+.group { display: grid; gap: 8px; }
+.group > h3 { margin: 0; display: flex; align-items: baseline; gap: 8px; font: 700 1.05rem/1.2 var(--f-display); }
+.group > h3 small { font: 500 .8rem var(--f-mono); color: var(--muted); }
+.group[data-kind="overdue"] > h3 { color: var(--due); }
+ul.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.item {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+}
+.item.overdue { border-color: var(--due); background: linear-gradient(90deg, var(--due-soft), var(--surface) 70%); }
+.item.done { opacity: .65; }
+.item.done .t { text-decoration: line-through; }
+.check {
+  width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--muted); background: transparent; cursor: pointer;
+  display: grid; place-items: center; margin-top: 1px; padding: 0;
+}
+.check:hover { border-color: var(--ok); }
+.item.done .check { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.check svg { width: 14px; height: 14px; }
+.body { min-width: 0; display: grid; gap: 2px; cursor: pointer; }
+.t { font-weight: 700; overflow-wrap: anywhere; }
+.n { color: var(--muted); font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 12px; font: 500 .78rem/1.4 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta .rel { color: var(--accent); }
+.item.overdue .meta .rel { color: var(--due); }
+.pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0 8px; }
+.meta a { color: var(--muted); }
+.side { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.mini { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 3px 8px; font-size: .78rem; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.mini:hover { color: var(--accent); border-color: var(--accent); }
+
+.empty { text-align: center; padding: 36px 16px; color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; }
+.empty b { color: var(--ink); display: block; font: 700 1.2rem var(--f-display); margin-bottom: 4px; }
+details.done-wrap summary { cursor: pointer; color: var(--muted); font: 700 1.05rem var(--f-display); }
+details.done-wrap ul { margin-top: 8px; }
+
+/* Due alert banner */
+.alerts {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; gap: 8px; justify-items: center;
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  pointer-events: none;
+}
+.alert {
+  pointer-events: auto; width: min(560px, 100%); background: var(--ink); color: var(--bg);
+  border-radius: 12px; padding: 12px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: rise .25s ease-out;
+}
+.alert .msg { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.alert .msg small { display: block; opacity: .7; font: 500 .75rem var(--f-mono); }
+.alert button { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: .85rem; }
+.alert button.go { background: var(--bg); color: var(--ink); border-color: var(--bg); font-weight: 700; }
+@keyframes rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .alert { animation: none; } }
+.foot { color: var(--muted); font-size: .82rem; }
+@media (max-width: 480px) {
+  .item { grid-template-columns: auto 1fr; }
+  .side { grid-column: 2; justify-content: flex-start; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Nudge<span>.</span></h1>
+      <span class="sync" id="sync" data-mode="local">Connecting…</span>
+    </div>
+    <p class="summary" id="summary">Your personal reminders, grouped by when they're due.</p>
+  </header>
+
+  <form class="card" id="form" autocomplete="off">
+    <h2 id="formHead">New reminder</h2>
+    <input id="title" placeholder="Remind me to…" maxlength="140" required>
+    <div class="chips" id="chips">
+      <button type="button" class="chip" data-q="1h">In 1 hour</button>
+      <button type="button" class="chip" data-q="tonight">Tonight 8 PM</button>
+      <button type="button" class="chip" data-q="tomorrow">Tomorrow 9 AM</button>
+      <button type="button" class="chip" data-q="monday">Next Monday 9 AM</button>
+    </div>
+    <div class="row">
+      <div class="field"><label for="date">Date</label><input type="date" id="date" required></div>
+      <div class="field"><label for="time">Time</label><input type="time" id="time" required></div>
+      <div class="field"><label for="repeat">Repeat</label>
+        <select id="repeat">
+          <option value="none">Doesn't repeat</option>
+          <option value="daily">Every day</option>
+          <option value="weekdays">Every weekday</option>
+          <option value="weekly">Every week</option>
+          <option value="monthly">Every month</option>
+          <option value="yearly">Every year</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label for="notes">Notes</label><textarea id="notes" rows="1" maxlength="1000" placeholder="Optional details"></textarea></div>
+    <div class="actions">
+      <button class="btn primary" id="save" type="submit">Add reminder</button>
+      <button class="btn ghost" id="cancel" type="button" hidden>Cancel</button>
+      <span class="spacer"></span>
+      <button class="btn danger" id="del" type="button" hidden>Delete</button>
+      <span class="confirm" id="confirm" hidden>Delete this reminder?
+        <button class="btn danger" id="delYes" type="button">Delete</button>
+        <button class="btn ghost" id="delNo" type="button">Keep</button>
+      </span>
+    </div>
+  </form>
+
+  <main id="list" aria-live="polite"></main>
+  <p class="foot" id="foot">Alerts show here while this page is open. For phone notifications, use "Add to Google Calendar" on any reminder.</p>
+</div>
+<div class="alerts" id="alerts"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const LS_KEY = "nudge.reminders.v1";
+  let items = [];
+  let mode = "local";
+  let col = null;
+  let editing = null;
+  const alerted = new Set();
+  let interacted = false;
+
+  // ---------- storage ----------
+  function loadLocal() {
+    try { items = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { items = []; }
+  }
+  function saveLocal() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(items)); } catch {}
+  }
+  async function put(r) {
+    const i = items.findIndex((x) => x.id === r.id);
+    if (i >= 0) items[i] = r; else items.push(r);
+    render();
+    if (mode === "cloud") {
+      const { id, ...body } = r;
+      try { await col.doc(id).set(body); } catch (e) { flash("Couldn't save: " + (e.message || e.code)); }
+    } else saveLocal();
+  }
+  async function remove(id) {
+    items = items.filter((x) => x.id !== id);
+    render();
+    if (mode === "cloud") {
+      try { await col.doc(id).delete(); } catch (e) { flash("Couldn't delete: " + (e.message || e.code)); }
+    } else saveLocal();
+  }
+  async function connect() {
+    let db = null, uid = null;
+    if (window.claude && typeof window.claude.use === "function") {
+      try {
+        db = await window.claude.use("db");
+        const user = await window.claude.use("user");
+        uid = user ? await user.id() : null;
+      } catch { db = null; }
+    }
+    if (db && uid) {
+      mode = "cloud";
+      col = db.collection("data/users/" + uid);
+      setSync("cloud", "Synced to your account");
+      col.onSnapshot((snap) => {
+        items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        render();
+      }, () => {
+        mode = "local"; loadLocal(); setSync("local", "Saved in this browser"); render();
+      });
+    } else {
+      loadLocal();
+      setSync("local", "Saved in this browser");
+      render();
+    }
+  }
+  function setSync(m, text) { const s = $("sync"); s.dataset.mode = m; s.textContent = text; }
+
+  // ---------- dates ----------
+  const pad = (n) => String(n).padStart(2, "0");
+  const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const timeStr = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const fmtTime = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+  const fmtDay = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const REPEAT_LABEL = { daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
+
+  function nextHour() { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); return d; }
+  function quick(q) {
+    const now = new Date(); let d;
+    if (q === "1h") { d = new Date(now.getTime() + 3600e3); d.setSeconds(0, 0); d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5); }
+    else if (q === "tonight") { d = new Date(now); d.setHours(20, 0, 0, 0); if (d <= now) d = addDays(d, 1); }
+    else if (q === "tomorrow") { d = addDays(startOfDay(now), 1); d.setHours(9); }
+    else { d = startOfDay(now); const off = ((8 - d.getDay()) % 7) || 7; d = addDays(d, off); d.setHours(9); }
+    return d;
+  }
+  function relative(ms) {
+    const diff = ms - Date.now(), a = Math.abs(diff), m = Math.round(a / 60e3);
+    let s;
+    if (m < 1) return diff >= 0 ? "now" : "just now";
+    if (m < 60) s = m + " min";
+    else if (m < 60 * 24) s = Math.round(m / 60) + " h";
+    else s = Math.round(m / 1440) + (Math.round(m / 1440) === 1 ? " day" : " days");
+    return diff >= 0 ? "in " + s : s + " ago";
+  }
+  function advance(r) {
+    const d = new Date(r.due), now = Date.now();
+    const step = (x) => {
+      if (r.repeat === "daily") x.setDate(x.getDate() + 1);
+      else if (r.repeat === "weekdays") { do { x.setDate(x.getDate() + 1); } while (x.getDay() === 0 || x.getDay() === 6); }
+      else if (r.repeat === "weekly") x.setDate(x.getDate() + 7);
+      else if (r.repeat === "monthly") { const day = new Date(r.due).getDate(); x.setDate(1); x.setMonth(x.getMonth() + 1); x.setDate(Math.min(day, new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate())); }
+      else if (r.repeat === "yearly") x.setFullYear(x.getFullYear() + 1);
+    };
+    do { step(d); } while (d.getTime() <= now);
+    return d.getTime();
+  }
+  function gcalLink(r) {
+    const z = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const p = new URLSearchParams({ action: "TEMPLATE", text: r.title, dates: z(r.due) + "/" + z(r.due + 15 * 60e3), details: r.notes || "" });
+    const rr = { daily: "FREQ=DAILY", weekdays: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", weekly: "FREQ=WEEKLY", monthly: "FREQ=MONTHLY", yearly: "FREQ=YEARLY" }[r.repeat];
+    if (rr) p.set("recur", "RRULE:" + rr);
+    return "https://calendar.google.com/calendar/render?" + p.toString();
+  }
+
+  // ---------- actions ----------
+  function complete(r) {
+    alerted.delete(r.id);
+    if (r.repeat && r.repeat !== "none" && !r.done) put({ ...r, due: advance(r), lastDoneAt: Date.now() });
+    else put({ ...r, done: !r.done, doneAt: r.done ? null : Date.now() });
+  }
+  function snooze(r, mins) {
+    alerted.delete(r.id);
+    let due;
+    if (mins === "tomorrow") { const d = addDays(startOfDay(new Date()), 1); d.setHours(9); due = d.getTime(); }
+    else due = Date.now() + mins * 60e3;
+    put({ ...r, due, done: false });
+  }
+
+  // ---------- form ----------
+  const form = $("form");
+  function resetForm() {
+    editing = null; form.reset();
+    const d = nextHour(); $("date").value = dateStr(d); $("time").value = timeStr(d);
+    $("formHead").textContent = "New reminder"; $("save").textContent = "Add reminder";
+    $("cancel").hidden = true; $("del").hidden = true; $("confirm").hidden = true;
+  }
+  function editItem(r) {
+    editing = r.id;
+    const d = new Date(r.due);
+    $("title").value = r.title; $("notes").value = r.notes || ""; $("repeat").value = r.repeat || "none";
+    $("date").value = dateStr(d); $("time").value = timeStr(d);
+    $("formHead").textContent = "Edit reminder"; $("save").textContent = "Save changes";
+    $("cancel").hidden = false; $("del").hidden = false; $("confirm").hidden = true;
+    form.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    $("title").focus();
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const title = $("title").value.trim();
+    if (!title || !$("date").value || !$("time").value) return;
+    const [y, mo, da] = $("date").value.split("-").map(Number);
+    const [h, mi] = $("time").value.split(":").map(Number);
+    const due = new Date(y, mo - 1, da, h, mi).getTime();
+    const prev = items.find((x) => x.id === editing);
+    const r = {
+      ...(prev || { created: Date.now() }),
+      id: editing || "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title, notes: $("notes").value.trim(), due, repeat: $("repeat").value, done: false, doneAt: null,
+    };
+    alerted.delete(r.id);
+    put(r);
+    resetForm();
+    $("title").focus();
+  });
+  $("cancel").onclick = resetForm;
+  $("del").onclick = () => { $("del").hidden = true; $("confirm").hidden = false; };
+  $("delNo").onclick = () => { $("del").hidden = false; $("confirm").hidden = true; };
+  $("delYes").onclick = () => { const id = editing; resetForm(); remove(id); };
+  $("chips").addEventListener("click", (e) => {
+    const q = e.target.closest(".chip")?.dataset.q; if (!q) return;
+    const d = quick(q); $("date").value = dateStr(d); $("time").value = timeStr(d);
+  });
+
+  // ---------- render ----------
+  const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  function itemNode(r) {
+    const now = Date.now();
+    const li = el("li", "item" + (r.done ? " done" : "") + (!r.done && r.due <= now ? " overdue" : ""));
+    const chk = el("button", "check"); chk.type = "button"; chk.innerHTML = CHECK;
+    chk.setAttribute("aria-label", r.done ? "Mark not done" : (r.repeat !== "none" ? "Done, schedule next" : "Mark done"));
+    chk.onclick = () => complete(r);
+    const body = el("div", "body"); body.tabIndex = 0; body.setAttribute("role", "button"); body.setAttribute("aria-label", "Edit " + r.title);
+    body.onclick = () => editItem(r);
+    body.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); editItem(r); } };
+    body.append(el("span", "t", r.title));
+    if (r.notes) body.append(el("span", "n", r.notes));
+    const meta = el("div", "meta");
+    const d = new Date(r.due);
+    meta.append(el("span", null, fmtDay.format(d) + " · " + fmtTime.format(d)));
+    if (!r.done) meta.append(el("span", "rel", relative(r.due)));
+    if (r.repeat && r.repeat !== "none") meta.append(el("span", "pill", "↻ " + REPEAT_LABEL[r.repeat]));
+    if (!r.done) {
+      const a = el("a", null, "Add to Google Calendar"); a.href = gcalLink(r); a.target = "_blank"; a.rel = "noopener";
+      a.onclick = (e) => e.stopPropagation();
+      meta.append(a);
+    }
+    body.append(meta);
+    const side = el("div", "side");
+    if (!r.done) {
+      [["+10m", 10], ["+1h", 60], ["Tomorrow", "tomorrow"]].forEach(([label, v]) => {
+        const b = el("button", "mini", label); b.type = "button"; b.title = "Snooze"; b.onclick = () => snooze(r, v); side.append(b);
+      });
+    }
+    li.append(chk, body, side);
+    return li;
+  }
+
+  function render() {
+    const now = Date.now();
+    const today0 = startOfDay(new Date()).getTime();
+    const tom0 = addDays(new Date(today0), 1).getTime(), day2 = addDays(new Date(today0), 2).getTime(), wk = addDays(new Date(today0), 7).getTime();
+    const open = items.filter((r) => !r.done).sort((a, b) => a.due - b.due);
+    const done = items.filter((r) => r.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+    const groups = [
+      ["overdue", "Overdue", open.filter((r) => r.due <= now)],
+      ["today", "Later today", open.filter((r) => r.due > now && r.due < tom0)],
+      ["tomorrow", "Tomorrow", open.filter((r) => r.due >= tom0 && r.due < day2)],
+      ["week", "This week", open.filter((r) => r.due >= day2 && r.due < wk)],
+      ["later", "Later", open.filter((r) => r.due >= wk)],
+    ];
+    const list = $("list"); list.replaceChildren();
+    list.style.display = "grid"; list.style.gap = "22px";
+    if (!items.length) {
+      const e = el("div", "empty");
+      e.append(el("b", null, "Nothing to remember yet"));
+      e.append(document.createTextNode("Type what you need to remember above, pick a time, and press Add reminder. Try “Call the dentist”, Tomorrow 9 AM."));
+      list.append(e);
+    }
+    for (const [kind, label, rs] of groups) {
+      if (!rs.length) continue;
+      const g = el("section", "group"); g.dataset.kind = kind;
+      const h = el("h3", null, label + " "); h.append(el("small", null, String(rs.length)));
+      const ul = el("ul", "list"); rs.forEach((r) => ul.append(itemNode(r)));
+      g.append(h, ul); list.append(g);
+    }
+    if (items.length && !open.length) {
+      const e = el("div", "empty"); e.append(el("b", null, "All clear")); e.append(document.createTextNode("Every reminder is done."));
+      list.append(e);
+    }
+    if (done.length) {
+      const det = el("details", "done-wrap");
+      det.append(el("summary", null, `Done (${done.length})`));
+      const ul = el("ul", "list"); done.slice(0, 30).forEach((r) => ul.append(itemNode(r)));
+      det.append(ul); list.append(det);
+    }
+    // summary
+    const s = $("summary"); s.replaceChildren();
+    const over = groups[0][2].length, todayCount = groups[1][2].length;
+    if (!open.length) s.textContent = items.length ? "You're all caught up." : "Your personal reminders, grouped by when they're due.";
+    else {
+      if (over) { const b = el("b", "hot", over + " overdue"); s.append(b, document.createTextNode(" · ")); }
+      s.append(el("b", null, todayCount + " later today"));
+      const next = open.find((r) => r.due > now);
+      if (next) s.append(document.createTextNode(" · Next: " + next.title + " " + relative(next.due)));
+    }
+    document.title = (over ? `(${over}) ` : "") + "Nudge Reminders";
+  }
+
+  // ---------- due alerts ----------
+  function chime() {
+    if (!interacted) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, .18].forEach((t, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = i ? 880 : 660; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(.2, ctx.currentTime + t + .02);
+        g.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + t + .35);
+        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + .4);
+      });
+    } catch {}
+  }
+  function showAlert(r) {
+    const box = $("alerts");
+    const a = el("div", "alert"); a.setAttribute("role", "alert");
+    const msg = el("div", "msg", r.title); msg.append(el("small", null, "Due " + fmtTime.format(new Date(r.due))));
+    const close = () => a.remove();
+    const done = el("button", "go", r.repeat !== "none" ? "Done" : "Done"); done.onclick = () => { complete(r); close(); };
+    const s10 = el("button", null, "Snooze 10m"); s10.onclick = () => { snooze(r, 10); close(); };
+    const x = el("button", null, "Dismiss"); x.onclick = close;
+    a.append(msg, done, s10, x); box.append(a);
+    while (box.children.length > 3) box.firstChild.remove();
+  }
+  function tick() {
+    const now = Date.now();
+    let fired = false;
+    for (const r of items) {
+      if (r.done || r.due > now || alerted.has(r.id)) continue;
+      alerted.add(r.id);
+      // Only pop a banner for things that came due while the page was open (last 5 min).
+      if (now - r.due < 5 * 60e3) { showAlert(r); fired = true; }
+    }
+    if (fired) chime();
+    render();
+  }
+  function flash(text) {
+    const a = el("div", "alert"); a.append(el("div", "msg", text));
+    const x = el("button", null, "OK"); x.onclick = () => a.remove(); a.append(x);
+    $("alerts").append(a); setTimeout(() => a.remove(), 6000);
+  }
+  ["pointerdown", "keydown"].forEach((ev) => addEventListener(ev, () => { interacted = true; }, { once: true, capture: true }));
+
+  resetForm();
+  render();
+  connect().then(() => {
+    // Mark anything already overdue at load as seen so only fresh ones pop.
+    const now = Date.now(); items.forEach((r) => { if (!r.done && now - r.due >= 5 * 60e3) alerted.add(r.id); });
+    setInterval(tick, 15000);
+  });
+})();
+</script>
