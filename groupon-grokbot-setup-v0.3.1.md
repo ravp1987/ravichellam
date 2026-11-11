@@ -90,19 +90,26 @@ Check: gws --version
 
 Brain has two sign-in routes. Today https://brain.groupon.com/cli usually offers only "Generate my connection token"
 (route A). Use route B only if the page also shows a one-time setup code.
-Both routes run the same installer, so first:
-a. Read https://brain.groupon.com/cli/install.sh before you run it. If it prints an HTML "404 Page not found"
-   or anything that isn't a shell script, stop and tell them to contact IT.
-b. Ask the user which one the page shows: "Generate my connection token" (route A), or a one-time setup code (route B).
+a. Ask the user which one the page shows: "Generate my connection token" (route A), or a one-time setup code (route B).
 
-Route A - connection token (BRAIN_PAT), the usual route:
+Route A - connection token (BRAIN_PAT), the usual route. No installer script; these are the steps Brain's own prompt gives:
 A1. Ask for a Secrets card named BRAIN_PAT. Tell them: on https://brain.groupon.com/cli click "Generate my connection token".
     It shows a setup prompt once. Don't paste that prompt into the chat. In it, find the line BRAIN_PAT=brain_pat_...
     and put only the value after BRAIN_PAT= (it starts with brain_pat_) into the Secrets card.
-A2. Run the installer for Brain alone, never the agnes, rfg, asana, atlassian, gws or claude parts:
-    curl -fsSL https://brain.groupon.com/cli/install.sh | BRAIN_ONBOARD_BUNDLE_ONLY=1 bash
-    Then sign Brain in with the BRAIN_PAT secret, the way the installer says, without printing it.
-A3. This route gives Brain only. gws gets no Google settings from it. Step 8 handles that.
+    If they paste the prompt or the token into the chat anyway, tell them to revoke it under "Revoke & re-mint" on the
+    same page, generate a new one, and put the new value in the Secrets card.
+A2. Bun: run bun --version. If it's missing, read https://bun.sh/install, then run curl -fsSL https://bun.sh/install | bash
+    and open a new shell.
+A3. Download the Brain CLI: mkdir -p ~/.brain && curl -fsSL "https://brain.groupon.com/cli/bundle" -o ~/.brain/brain.js
+    If that gives an HTML page instead of JavaScript, stop and tell them to contact IT.
+A4. Create ~/.local/bin/brain containing exactly these two lines, then chmod +x ~/.local/bin/brain,
+    and add ~/.local/bin to PATH in the shell profile if it isn't there already:
+      #!/bin/sh
+      exec bun "$HOME/.brain/brain.js" "$@"
+A5. Persist BRAIN_API_URL=https://brain.groupon.com, and make BRAIN_PAT available from the Secrets card. Never write the
+    token's value into a profile file or print it.
+A6. Don't follow the rest of Brain's prompt: you don't write to CLAUDE.md, AGENTS.md or settings files for it.
+A7. This route gives Brain only. Brain's prompt has nothing for gws or Google, so Chat gets its settings in step 8 (way ii).
 
 Route B - one-time setup code (BRAIN_SETUP_CODE), only if the page offers one:
 B1. Ask for a Secrets card named BRAIN_SETUP_CODE. It works once and expires.
@@ -113,7 +120,8 @@ B3. If the code is refused (expired or already used), ask for a new one once, th
 
 Then, whichever route you used:
 c. Persist BRAIN_ORIGIN=grok-bot and GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file.
-d. Check: brain auth status, then one Brain search for "Grok Bot".
+d. Check: open a new shell, then brain whoami (shows their identity and scope), then one Brain search:
+   brain search "Grok Bot" --json
    If the search is empty and flagged VECTOR_OFF, that's a Brain server issue. Say so and move on.
    If Brain refuses their account (HTTP 403, or no Generate button on the page), skip the rest of step 7 and tell them
    it's a Brain access question for IT. Step 8 can still run, using way ii.
