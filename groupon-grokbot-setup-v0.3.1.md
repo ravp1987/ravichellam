@@ -131,6 +131,8 @@ e. Tell the user which route you used. Route B: the gws part ends with "needs lo
 
 Google Chat has no connector. Use gws for everything Google Chat, from now on.
 Never use webhooks or other Chat tools. Everything in this step runs on your own computer.
+Brain doesn't sign in to Chat. Its own copy of Chat messages (often "The chat corpus is restricted") is not a substitute:
+for the user's own spaces, only gws counts.
 
 gws can't sign in until it has Groupon's Google sign-in settings (an OAuth client ID and client secret).
 Without them it says "No OAuth client configured". Get them in one of two ways, without printing them:
