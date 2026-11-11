@@ -164,12 +164,22 @@ ii. Route A in step 7, or no Brain: ask for two Secrets cards, GWS_CLIENT_ID and
 a. Check gws has a client, without printing it: gws auth status should not say "No OAuth client configured".
 b. Tell them what the Google consent screen must show: Chat spaces (read), Chat messages and basic profile
    (name and email). Nothing more. If it shows more, they cancel and you stop.
-c. Run, with only these two scopes:
-   gws auth login --scopes https://www.googleapis.com/auth/chat.messages,https://www.googleapis.com/auth/chat.spaces.readonly
+c. Start the sign-in in the background, so gws keeps listening after it prints the link
+   (an ordinary command may end too early and close the port):
+   nohup gws auth login --scopes https://www.googleapis.com/auth/chat.messages,https://www.googleapis.com/auth/chat.spaces.readonly > ~/.gws-login.log 2>&1 &
    (gws adds openid, email and profile by itself. That's the "basic profile" line.)
-   It prints a sign-in link and waits. The link sends Google's answer back to localhost on your computer, so it only
-   works in your own browser: open it there and tell them it's ready. They sign in there with their groupon.com account
-   (Google may send them through Okta) and approve the consent themselves. Keep gws running until they're done.
+   Read the sign-in link from ~/.gws-login.log. It ends at a localhost port on your computer, and each run picks a new
+   port, so only the link from this run works. Keep that gws running until the sign-in is done.
+   Sign-in, way 1 (preferred): open the link in your own browser and tell them it's ready. They sign in there with their
+   groupon.com account (Google may send them through Okta) and approve the consent themselves.
+   Sign-in, way 2 (they can only use their own browser): give them the link. They sign in and approve, then their
+   browser shows "This site can't be reached" / "localhost refused to connect". That's expected: Google's answer went
+   to their own computer instead of yours. Ask for a Secrets card named GWS_SIGNIN_REDIRECT, and tell them to copy the
+   whole address from that error page's address bar (it starts with http://localhost:) into it, not into the chat.
+   Then pass it to the waiting gws on your computer, without printing it:
+     curl -sS --noproxy localhost "$GWS_SIGNIN_REDIRECT"
+   It should answer "Success!". The code in that address works once and expires within minutes: if it's refused, or
+   gws has stopped, start again from 8c with a new link.
    Don't type anything on the sign-in pages for them. If they can't see the page, give them the link again.
    If Google says "Couldn't sign you in" or "access blocked", stop, tell them to raise an IT request, and go to step 9.
 d. Check: gws auth status (signed in as their groupon.com email, with a valid token), then
