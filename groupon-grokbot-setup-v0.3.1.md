@@ -138,7 +138,9 @@ ii. Route A in step 7, or no Brain: ask for two Secrets cards, GWS_CLIENT_ID and
     "Grok Bot setup v0.3.1, step 8 (Google Chat). brain.groupon.com/cli only gives me a connection token (BRAIN_PAT),
     with no one-time setup code, so my bot has no Google sign-in settings for gws. Please send me Groupon's gws OAuth
     client ID and client secret (or a Brain one-time setup code) so my bot can connect Google Chat. Scopes:
-    chat.messages and chat.spaces.readonly."
+    chat.messages and chat.spaces.readonly. Please also confirm the Google Cloud project behind that client has the
+    Google Chat API turned on with a Chat app configured, and that the client is allowed for these scopes in our
+    Workspace admin settings."
 
 a. Check gws has a client, without printing it: gws auth status should not say "No OAuth client configured".
 b. Tell them what the Google consent screen must show: Chat spaces (read), Chat messages and basic profile
